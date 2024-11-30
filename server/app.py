@@ -1,10 +1,13 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+import requests
+import threading
+import time
 
 app = FastAPI()
 limiter = Limiter(key_func=get_remote_address)
@@ -36,6 +39,26 @@ class IPFilterMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(IPFilterMiddleware)
 
+TARGET_URL = "http://localhost:8000/limited"
+
+def run_dos_attack(num_threads: int):
+    def attack():
+        try:
+            response = requests.get(TARGET_URL)
+            print(f"Status Code: {response.status_code}, Response: {response.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed: {e}")
+
+    threads = []
+    for i in range(num_threads):
+        thread = threading.Thread(target=attack)
+        threads.append(thread)
+        thread.start()
+        time.sleep(0.01)  # stagger requests
+
+    for thread in threads:
+        thread.join()
+
 @app.get("/limited")
 @limiter.limit("5/minute")
 async def limited_endpoint(request: Request):
@@ -54,3 +77,18 @@ async def blacklist_ip(ip: str, request: Request):
 async def remove_blacklist_ip(ip: str, request: Request):
     blacklisted_ips.discard(ip)
     return {"message": f"IP {ip} removed from blacklist."}
+
+@app.post("/configure")
+async def configure_attack(request: Request, background_tasks: BackgroundTasks):
+    data = await request.json()
+    num_threads = data.get("NUM_THREADS", 10)
+    rate_limit_number = data.get("RATE_LIMIT", 5)
+    rate_limit = f"{rate_limit_number}/minute"
+
+    # Update server settings
+    app.state.limiter = Limiter(key_func=get_remote_address, default_limits=[rate_limit])
+
+    # Execute the DoS attack in the background
+    background_tasks.add_task(run_dos_attack, num_threads)
+
+    return {"message": "Configuration updated and DoS attack initiated", "num_threads": num_threads, "rate_limit": rate_limit}
