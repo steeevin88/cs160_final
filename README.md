@@ -37,15 +37,15 @@ Final Project for SJSU's CS 160: Information Security
    pip install -r requirements.txt
    ```
 
-   - Note: `slowapi` sometimes requires an explicit install. Please run the following command again to ensure it works.
+   - Note: `slowapi` sometimes requires an explicit install. If needed, run the following command again to ensure it works.
 
    ```
    pip install slowapi
    ```
 
-4. Run the FastAPI server using Uvicorn:
+4. Run the FastAPI server:
    ```bash
-   uvicorn app:app --reload
+   python3 app.py
    ```
 
 ## Team Members - Group 13

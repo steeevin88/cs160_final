@@ -237,19 +237,21 @@ export default function Home() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="rateLimit">
-                    Rate Limit (requests per minute)
-                  </Label>
-                  <Input
-                    id="rateLimit"
-                    type="number"
-                    value={rateLimit}
-                    onChange={(e) => setRateLimit(Number(e.target.value))}
-                    placeholder="e.g., 5"
-                    min={1}
-                  />
-                </div>
+                {targetEndpoint !== "/open" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="rateLimit">
+                      Rate Limit (requests per minute)
+                    </Label>
+                    <Input
+                      id="rateLimit"
+                      type="number"
+                      value={rateLimit}
+                      onChange={(e) => setRateLimit(Number(e.target.value))}
+                      placeholder="e.g., 5"
+                      min={1}
+                    />
+                  </div>
+                )}
               </CardContent>
               <CardFooter className="space-x-2">
                 <Button type="submit" disabled={isAttacking}>

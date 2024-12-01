@@ -140,6 +140,7 @@ async def configure_attack(request: Request, background_tasks: BackgroundTasks):
             {"error": f"Failed to configure attack: {str(e)}"},
             status_code=500
         )
+
 @app.post("/stop")
 async def stop_attack():
     global is_attacking, attack_processes
@@ -358,10 +359,14 @@ def distributed_attack(target_url: str, num_nodes: int, is_blacklisting: bool = 
                     log_event("warning", f"Rate-limited IP {ip} has been blacklisted.")
                     continue
 
+                start_time = time.time()
                 response = requests.get(
                     target_url,
                     headers={"X-Forwarded-For": ip}
                 )
+                response_time = (time.time() - start_time) * 1000
+                attack_metrics.record_request(response_time, response.status_code)
+
                 if response.status_code == 429:
                     if is_blacklisting:
                         blacklist_ip(ip)
@@ -370,15 +375,15 @@ def distributed_attack(target_url: str, num_nodes: int, is_blacklisting: bool = 
                     log_event("info", f"Node {node_id} (IP: {ip}) request successful")
             except requests.exceptions.RequestException as e:
                 log_event("error", f"Node {node_id} request failed: {str(e)}")
+                attack_metrics.record_request(1000, 500)
             time.sleep(random.uniform(0.1, 1.0))
 
-    processes = []
+    threads = []
     for _ in range(num_nodes):
-        process = multiprocessing.Process(target=node_attack)
-        processes.append(process)
-        process.start()
-    
-    return processes
+        thread = threading.Thread(target=node_attack)
+        threads.append(thread)
+        thread.start()
+    return threads
 
 if __name__ == "__main__":
     import uvicorn
