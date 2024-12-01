@@ -24,20 +24,12 @@ attack_processes: List[multiprocessing.Process] = []
 metrics_history: deque[Dict[str, float]] = deque(maxlen=100)
 logs_history: List[Dict[str, str]] = []  
 blacklisted_ips: set[str] = set()
+logged_blacklisted_ips: set[str] = set()
 is_attacking = False
-
-class IPFilterMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        client_ip = get_remote_address(request)
-        if client_ip in blacklisted_ips:
-            log_event("warning", f"Blocked request from blacklisted IP: {client_ip}")
-            return Response("Forbidden", status_code=403)
-        response = await call_next(request)
-        return response
 
 app = FastAPI()
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["5/minute"])
+limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 
 origins = ["*"]
@@ -49,8 +41,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.add_middleware(IPFilterMiddleware)
-
 app.add_middleware(SlowAPIMiddleware)
 
 def log_event(event_type: str, message: str):
@@ -61,6 +51,19 @@ def log_event(event_type: str, message: str):
     }
     logs_history.append(log_entry)
     logger.info(f"[{event_type}] {message}")
+
+def clear_blacklist():
+    global blacklisted_ips
+    while True:
+        time.sleep(10) # clear blacklist every 10 seconds...
+        blacklisted_ips.clear()
+        log_event("info", "Blacklist cleared")
+
+def blacklist_ip(ip: str):
+    global blacklisted_ips
+    if ip not in blacklisted_ips:
+        logger.info(f"Blacklisting IP: {ip}")
+        blacklisted_ips.add(ip)
 
 @app.get("/metrics")
 async def get_metrics():
@@ -83,18 +86,6 @@ async def open_endpoint(request: Request):
     log_event("info", f"Open endpoint accessed from {client_ip}")
     return {"message": "This endpoint has no rate limiting."}
 
-@app.post("/blacklist/{ip}")
-async def blacklist_ip(ip: str):
-    blacklisted_ips.add(ip)
-    log_event("warning", f"IP {ip} added to blacklist")
-    return {"message": f"IP {ip} added to blacklist"}
-
-@app.delete("/blacklist/{ip}")
-async def remove_blacklist_ip(ip: str):
-    blacklisted_ips.discard(ip)
-    log_event("info", f"IP {ip} removed from blacklist")
-    return {"message": f"IP {ip} removed from blacklist"}
-
 @app.post("/configure")
 async def configure_attack(request: Request, background_tasks: BackgroundTasks):
     global is_attacking, attack_processes
@@ -107,13 +98,10 @@ async def configure_attack(request: Request, background_tasks: BackgroundTasks):
         rate_limit = data.get("RATE_LIMIT", 5)
         attack_mode = data.get("ATTACK_MODE", "single")
         target_endpoint = data.get("TARGET_ENDPOINT", "/limited")
+        is_blacklisting = data.get("IS_BLACKLISTING", False)
         
         attack_metrics.reset()
-        
-        app.state.limiter = Limiter(
-            key_func=get_remote_address,
-            default_limits=[f"{rate_limit}/minute"]
-        )
+        logging.debug(f"Debug: rate limiting rate: {rate_limit}/minute")
         
         is_attacking = True
         target_url = f"http://127.0.0.1:8000{target_endpoint}"
@@ -122,16 +110,16 @@ async def configure_attack(request: Request, background_tasks: BackgroundTasks):
         
         if attack_mode == "single":
             for i in range(num_threads):
-                process = multiprocessing.Process(
+                thread = threading.Thread(
                     target=single_attack,
-                    args=(target_url,)
+                    args=(target_url, is_blacklisting)
                 )
-                attack_processes.append(process)
-                process.start()
-                log_event("info", f"Started attack process {i+1}/{num_threads}")
+                attack_processes.append(thread)
+                thread.start()
+                log_event("info", f"Started attack thread {i+1}/{num_threads}")
         else:
             attack_processes.extend(
-                distributed_attack(target_url, num_threads)
+                distributed_attack(target_url, num_threads, is_blacklisting)
             )
         
         metrics_thread = threading.Thread(target=update_metrics)
@@ -152,15 +140,14 @@ async def configure_attack(request: Request, background_tasks: BackgroundTasks):
             {"error": f"Failed to configure attack: {str(e)}"},
             status_code=500
         )
-
 @app.post("/stop")
 async def stop_attack():
     global is_attacking, attack_processes
     
     if is_attacking:
         is_attacking = False
-        for process in attack_processes:
-            process.terminate()
+        for thread in attack_processes:
+            thread.join()
         attack_processes.clear()
         
         final_metrics = attack_metrics.get_metrics()
@@ -300,14 +287,26 @@ def update_metrics():
         finally:
             time.sleep(0.1) 
 
-def single_attack(target_url: str):
+def single_attack(target_url: str, is_blacklisting: bool = False):
+    global blacklisted_ips
+
+    logging.debug(f"Starting single attack thread against {target_url}")
     log_event("info", f"Starting single attack thread against {target_url}")
     consecutive_429s = 0
+    ip = f"192.168.1.{random.randint(1, 255)}"
     
     while is_attacking:
         try:
+            if is_blacklisting and ip in blacklisted_ips and ip not in logged_blacklisted_ips:
+                logged_blacklisted_ips.add(ip)
+                log_event("warning", f"Rate-limited IP {ip} has been blacklisted.")
+                continue
+
             start_time = time.time()
-            response = requests.get(target_url)
+            response = requests.get(
+                    target_url,
+                    headers={"X-Forwarded-For": ip}
+                )
             response_time = (time.time() - start_time) * 1000  
             status = response.status_code
             
@@ -315,6 +314,10 @@ def single_attack(target_url: str):
             
             if status == 429:
                 consecutive_429s += 1
+
+                if is_blacklisting:
+                    blacklist_ip(ip)
+
                 backoff = min(consecutive_429s * 0.1, 1.0)  
                 log_event("warning", 
                     f"Rate limited ({consecutive_429s} in a row) - "
@@ -323,6 +326,7 @@ def single_attack(target_url: str):
                 )
                 time.sleep(backoff)
             else:
+                logging.debug(f"Request successful {status}")
                 consecutive_429s = 0
                 if status == 200:
                     log_event("info", 
@@ -341,17 +345,26 @@ def single_attack(target_url: str):
             attack_metrics.record_request(1000, 500)
             time.sleep(0.5)
 
-def distributed_attack(target_url: str, num_nodes: int):
+def distributed_attack(target_url: str, num_nodes: int, is_blacklisting: bool = False):
+    global blacklisted_ips
+
     def node_attack():
         node_id = random.randint(1, 1000)
         while is_attacking:
             try:
                 ip = f"192.168.1.{random.randint(1, 255)}"
+                if is_blacklisting and ip in blacklisted_ips and ip not in logged_blacklisted_ips:
+                    logged_blacklisted_ips.add(ip)
+                    log_event("warning", f"Rate-limited IP {ip} has been blacklisted.")
+                    continue
+
                 response = requests.get(
                     target_url,
                     headers={"X-Forwarded-For": ip}
                 )
                 if response.status_code == 429:
+                    if is_blacklisting:
+                        blacklist_ip(ip)
                     log_event("warning", f"Node {node_id} (IP: {ip}) hit rate limit")
                 else:
                     log_event("info", f"Node {node_id} (IP: {ip}) request successful")
@@ -369,4 +382,6 @@ def distributed_attack(target_url: str, num_nodes: int):
 
 if __name__ == "__main__":
     import uvicorn
+    clear_thread = threading.Thread(target=clear_blacklist, daemon=True)
+    clear_thread.start()
     uvicorn.run('app:app', host="0.0.0.0", port=8000, reload=True)

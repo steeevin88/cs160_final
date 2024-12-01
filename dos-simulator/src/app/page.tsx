@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -43,6 +44,7 @@ export default function Home() {
   const [attackMode, setAttackMode] = useState("single");
   const [targetEndpoint, setTargetEndpoint] = useState("/limited");
   const [metrics, setMetrics] = useState<Metrics[]>([]);
+  const [useBlacklist, setUseBlacklist] = useState(false);
   const [logs, setLogs] = useState<Log[]>([]);
   const [isAttacking, setIsAttacking] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -137,6 +139,7 @@ export default function Home() {
           RATE_LIMIT: rateLimit,
           ATTACK_MODE: attackMode,
           TARGET_ENDPOINT: targetEndpoint,
+          IS_BLACKLISTING: useBlacklist,
         }),
       });
 
@@ -209,6 +212,15 @@ export default function Home() {
                       <SelectItem value="/open">Open Endpoint</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="useBlacklist"
+                    checked={useBlacklist}
+                    onCheckedChange={(checked) => setUseBlacklist(checked as boolean)}
+                  />
+                  <Label htmlFor="useBlacklist">Use Blacklist</Label>
                 </div>
 
                 <div className="space-y-2">
