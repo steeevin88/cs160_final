@@ -92,3 +92,8 @@ async def configure_attack(request: Request, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_dos_attack, num_threads)
 
     return {"message": "Configuration updated and DoS attack initiated", "num_threads": num_threads, "rate_limit": rate_limit}
+
+if __name__ == "__main__":
+    # Automatically start the server when running the script
+    import uvicorn
+    uvicorn.run('app:app', host="0.0.0.0", port=8000, reload=True)
