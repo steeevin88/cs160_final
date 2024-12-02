@@ -267,7 +267,7 @@ def collect_metrics() -> Dict:
     return {
         "responseTime": metrics["avgResponseTime"],
         "successRate": metrics["successRate"],
-        "cpuUsage": psutil.cpu_percent(),
+        "cpuUsage": psutil.Process().cpu_percent(interval=0.5),
         "activeAttackers": len(attack_processes),
         "rateLimitedRate": metrics["rateLimitedRate"],
         "failureRate": metrics["failureRate"],
