@@ -190,7 +190,7 @@ export default function Home() {
                     <SelectContent>
                       <SelectItem value="single">Single DoS</SelectItem>
                       <SelectItem value="distributed">
-                        Distributed DDoS
+                        Distributed DoS
                       </SelectItem>
                     </SelectContent>
                   </Select>
@@ -225,7 +225,7 @@ export default function Home() {
 
                 <div className="space-y-2">
                   <Label htmlFor="numThreads">
-                    Number of Threads: {numThreads}
+                    Number of Attackers: {numThreads}
                   </Label>
                   <Slider
                     id="numThreads"

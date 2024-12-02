@@ -55,7 +55,7 @@ def log_event(event_type: str, message: str):
 def clear_blacklist():
     global blacklisted_ips
     while True:
-        time.sleep(10) # clear blacklist every 10 seconds...
+        time.sleep(30) # clear blacklist every 30 seconds...
         blacklisted_ips.clear()
         log_event("info", "Blacklist cleared")
 
@@ -143,7 +143,9 @@ async def configure_attack(request: Request, background_tasks: BackgroundTasks):
 
 @app.post("/stop")
 async def stop_attack():
-    global is_attacking, attack_processes
+    global is_attacking, attack_processes, blacklisted_ips
+
+    blacklisted_ips.clear()
     
     if is_attacking:
         is_attacking = False
@@ -387,6 +389,6 @@ def distributed_attack(target_url: str, num_nodes: int, is_blacklisting: bool = 
 
 if __name__ == "__main__":
     import uvicorn
-    clear_thread = threading.Thread(target=clear_blacklist, daemon=True)
-    clear_thread.start()
+    # clear_thread = threading.Thread(target=clear_blacklist, daemon=True)
+    # clear_thread.start()
     uvicorn.run('app:app', host="0.0.0.0", port=8000, reload=True)
